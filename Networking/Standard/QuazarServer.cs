@@ -207,7 +207,7 @@ namespace QuazarAPI.Networking.Standard
             }
         }
 
-        protected virtual bool OnReceive(uint ID, byte[] dataBuffer)
+        protected virtual bool OnReceive(uint ID, byte[] dataBuffer, int dataLength)
         {
             if (dataBuffer.Where(x => x == 0).Count() == dataBuffer.Length)
             {
@@ -216,12 +216,14 @@ namespace QuazarAPI.Networking.Standard
                 return false;
             }
             int amount = 0;
-            QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Incoming data: {dataBuffer.Length}");
+            QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Incoming data: {dataLength}");
             int fileNum = new DirectoryInfo("/packets").GetFiles().Count();
             File.WriteAllBytes($"/packets/incoming_[{fileNum}].dat", dataBuffer);
             byte[] readBuffer = new byte[dataBuffer.Length];
             dataBuffer.CopyTo(readBuffer, 0);
             var packets = PacketBase.ParseAll<T>(ref readBuffer);
+            if (!packets.Any())
+                ;
             foreach (var packet in packets)
             {
                 QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Incoming packet was successfully parsed.");
@@ -239,7 +241,7 @@ namespace QuazarAPI.Networking.Standard
             byte[] dataBuffer = null;
             void OnRecieve(object state)
             {
-                if (this.OnReceive(ID, dataBuffer))
+                if (this.OnReceive(ID, dataBuffer, connection.Available))
                     Ready();
                 else return;
             }

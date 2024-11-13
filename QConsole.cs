@@ -8,6 +8,8 @@ namespace QuazarAPI
 {
     public class QConsole
     {
+        private static bool ConsoleLoggingMode = true;
+
         public static List<string> TotalLog { get; } = new List<string>();
         public delegate void OnOutputHandler(string Channel, string Unformatted, string Formatted);
         public static event OnOutputHandler OnLogUpdated;
@@ -25,7 +27,8 @@ namespace QuazarAPI
                 $"{new string('-', CONSOLE_WIDTH)} \n" 
                 :
                 $"[{DateTime.Now}] - [{Channel}]: {message}";
-            Console.WriteLine(nmessage);
+            if (ConsoleLoggingMode)
+                Console.WriteLine(nmessage);
             lock (Log)
             {
                 Log.Add(nmessage);
@@ -52,5 +55,11 @@ namespace QuazarAPI
                 }
             }
         }
+
+        /// <summary>
+        /// Sets whether <see cref="QConsole"/> should output to the Console along with the <see cref="OnLogUpdated"/> output
+        /// </summary>
+        /// <param name="LogToConsole"></param>
+        public static void SetConsoleMode(bool LogToConsole) => ConsoleLoggingMode = LogToConsole;
     }
 }
