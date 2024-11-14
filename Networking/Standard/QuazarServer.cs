@@ -358,17 +358,19 @@ namespace QuazarAPI.Networking.Standard
         {
             try
             {
-                var client = Connections[id];
-                client.Dispose();
+                if(Connections.TryGetValue(id, out TcpClient client))
+                    client.Dispose();
             }
             catch (SocketException exc)
             {
 
             }
-            _clients.Remove(id);
-            _clientInfo.Remove(id);
-            OnConnectionsUpdated?.Invoke(id, null);
-            QConsole.WriteLine(Name, $"Disconnected Client {id} " + (Reason != SocketError.Success ? $"[{Reason}]" : ""));
+            if (_clients.Remove(id))
+            {
+                OnConnectionsUpdated?.Invoke(id, null);
+                QConsole.WriteLine(Name, $"Disconnected Client {id} " + (Reason != SocketError.Success ? $"[{Reason}]" : ""));
+            }
+            _clientInfo.Remove(id);                        
         }
 
         protected void StopListening()
