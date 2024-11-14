@@ -149,6 +149,12 @@ namespace QuazarAPI.Networking.Data
 
     public abstract class PacketBase : ExtendedBufferOperations
     {
+        /// <summary>
+        /// Get the size of the header of this <see cref="PacketBase"/>, in bytes
+        /// </summary>
+        /// <returns></returns>
+        public abstract uint GetHeaderSize();
+
         public DateTime Sent { get; set; }
         public DateTime Received { get; set; }
 
@@ -161,7 +167,14 @@ namespace QuazarAPI.Networking.Data
         public static T Parse<T>(byte[] bytes, out int endIndex) where T : PacketBase, new() => new T().ParsePacket<T>(bytes, out endIndex);
         public abstract T ParsePacket<T>(byte[] bytes, out int endIndex) where T : PacketBase, new();
         public abstract IEnumerable<T> ParseAllPackets<T>(ref byte[] Data) where T : PacketBase, new();
-               
+        /// <summary>
+        /// Try to read a packet header from the buffer and will output how much data to read from the network buffer
+        /// </summary>
+        /// <param name="Buffer"></param>
+        /// <param name="ReadSize"></param>
+        /// <returns></returns>
+        public abstract bool TryGetHeaderData(in Byte[] Buffer, out uint ReadSize);     
+
         /// <summary>
         /// Adds a packet to this one as a child. 
         /// <para>This is used to allow packets to be split by the API without needing to use custom types.

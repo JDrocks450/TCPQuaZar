@@ -88,9 +88,7 @@ namespace QuazarAPI.Networking.Standard
             true;
 #else
             false;
-#endif        
-
-        public event EventHandler<ClientInfo> OnConnectionsUpdated;
+#endif                
 
         protected Socket Host => listener.Server;
         protected IDictionary<uint, TcpClient> Connections => _clients;
@@ -112,6 +110,13 @@ namespace QuazarAPI.Networking.Standard
 
         public IPAddress MyIP { get; }
 
+        //**EVENTS        
+        public delegate void QuazarClientInfoHandler(uint ClientID, ClientInfo Info);
+        public delegate void QuazarDataHandler(uint ClientID, T Packet);
+        public event QuazarDataHandler OnIncomingPacket, OnOutgoingPacket;
+        public event QuazarClientInfoHandler OnConnectionsUpdated;
+        //**
+
         /// <summary>
         /// Creates a <see cref="QuazarServer"/> with the specified parameters.
         /// </summary>
@@ -126,16 +131,17 @@ namespace QuazarAPI.Networking.Standard
             PORT = port;
             BACKLOG = backlog;
             Name = name;
+            
+            QConsole.WriteLine(Name, $"Server object created. Name: {name} Port: {port} IP: {ListenIP}");
+            
             Init();
-
-            QConsole.WriteLine("QuazarServer", $"Server object created. Name: {name} Port: {port} IP: {ListenIP}");
         }
 
         protected virtual void Init()
         {
             listener = new TcpListener(MyIP, PORT);
             listener.Server.SendBufferSize = SendAmount;
-            QConsole.WriteLine("QuazarServer", $"Server object init complete. IP: {MyIP} Port: {PORT}");
+            QConsole.WriteLine(Name, $"Server object init complete. IP: {MyIP} Port: {PORT}");
 
             SendThreadInvoke = new ManualResetEvent(false);
             SendThread = new Thread(doSendLoop);
@@ -144,7 +150,7 @@ namespace QuazarAPI.Networking.Standard
 
         private void doSendLoop()
         {
-            QConsole.WriteLine("QuazarServer", $"New Thread {Thread.CurrentThread.ManagedThreadId} created.");
+            QConsole.WriteLine(Name, $"New Thread {Thread.CurrentThread.ManagedThreadId} created.");
             while (true)
             {
                 SendThreadInvoke.WaitOne();
@@ -162,16 +168,16 @@ namespace QuazarAPI.Networking.Standard
                             var connection = Connections[ID];
                             byte[] network_buffer = new byte[SendAmount];
                             using (var buffer = new MemoryStream(s_buffer)) {
-                                int sentAmount = 0;
+                                int sentAmount = 0, piecesSent = 0;
                                 do
                                 {
                                     sentAmount = buffer.Read(network_buffer, 0, SendAmount);
                                     connection.GetStream().Write(network_buffer, 0, sentAmount);
                                     if (s_buffer.Length > SendAmount)
-                                        QConsole.WriteLine("System", $"{Name} - An outgoing packet was large ({s_buffer.Length} bytes) sent a chunk of {sentAmount}");
-                                    else QConsole.WriteLine("System", $"{Name} - Sent {sentAmount} bytes to: {ID}");
+                                        piecesSent++;                                    
                                 }
                                 while (sentAmount == SendAmount);
+                                QConsole.WriteLine(Name, $"{Name} - Sent {sentAmount} bytes ({piecesSent} slices) to: {ID}");
                             }                                                       
                         }
                         catch (IOException exc)
@@ -207,71 +213,123 @@ namespace QuazarAPI.Networking.Standard
             }
         }
 
-        protected virtual bool OnReceive(uint ID, byte[] dataBuffer, int dataLength)
+        private void DiscardAllReadBytes(ref MemoryStream Stream)
         {
-            if (dataBuffer.Where(x => x == 0).Count() == dataBuffer.Length)
-            {
-                QConsole.WriteLine(Name, $"Error Detected on Client: " + ID);
-                Disconnect(ID);
-                return false;
+            //discard all used bytes before Position.
+            //this will leave only untouched/unread data.
+            byte[] tempBuffer = new byte[Stream.Length - Stream.Position];
+            Stream.Read(tempBuffer, 0, tempBuffer.Length);
+            Stream.Dispose();
+            Stream = new MemoryStream();
+            Stream.Write(tempBuffer, 0, tempBuffer.Length);
+        }
+
+        protected virtual bool OnReceive(uint ID, ref MemoryStream dataBuffer, int dataLength)
+        {            
+            //move buffer to start
+            dataBuffer.Seek(0,SeekOrigin.Begin);
+
+            var packetBase = new T(); // use this to get packet format for individual 'product' (Quazar is used in many projects)
+            uint packetHeaderLen = packetBase.GetHeaderSize(); // Get Packet Header -- basically get how much data we're waiting for
+
+            byte[] headerBuffer = new byte[packetHeaderLen]; // header data
+            dataBuffer.Read(headerBuffer, 0, (int)packetHeaderLen);
+            if (!packetBase.TryGetHeaderData(headerBuffer, out uint PayloadSize)) // try to get the size of the data
+            { // Error getting size of the data -- incorrect format                
+                //no this data is not a packet, remove this data after returning to caller.
+                QConsole.WriteLine("cQuaZar.PacketBase", "First packet in the response body isn't formatted correctly.");
+                return false;    
             }
-            int amount = 0;
-            QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Incoming data: {dataLength}");
-            int fileNum = new DirectoryInfo("/packets").GetFiles().Count();
-            File.WriteAllBytes($"/packets/incoming_[{fileNum}].dat", dataBuffer);
-            byte[] readBuffer = new byte[dataBuffer.Length];
-            dataBuffer.CopyTo(readBuffer, 0);
-            var packets = PacketBase.ParseAll<T>(ref readBuffer);
-            if (!packets.Any())
-                ;
+            dataBuffer.Seek(0, SeekOrigin.Begin); // move the buffer back to the start
+            if (packetHeaderLen + PayloadSize > dataBuffer.Length)
+            { // PACKET IS SPLIT -- we will put the buffer back and wait for more data.                
+                return false; // This will tell it to not call receive function again until more data arrives
+            }
+
+            QConsole.WriteLine(Name, $"Frame received from {ID}: {dataBuffer.Length} bytes of {packetHeaderLen + PayloadSize} bytes");
+
+            int transmissionSize = (int)(PayloadSize + packetHeaderLen); // size of the data stream
+            byte[] readBuffer = new byte[transmissionSize];
+            dataBuffer.Read(readBuffer, 0, transmissionSize);
+
+            //read all packets found within this completed data frame
+            IEnumerable<T> packets = default;
+            packets = PacketBase.ParseAll<T>(ref readBuffer);
+
+            //parse error!!!
+            if (!packets?.Any() ?? true)
+                throw new InvalidDataException("No packets found in transmission!!!");
+
+            //process all packets
             foreach (var packet in packets)
             {
-                QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Incoming packet was successfully parsed.");
                 packet.Received = DateTime.Now;
                 if (_packetCache)
                     IncomingTrans.Add(packet);
-                OnIncomingPacket(ID, packet);
+                InvokeOnIncomingPacket(ID, packet);
+            }            
+
+            int remainingSize = (int)(dataBuffer.Length - dataBuffer.Position);
+            if (remainingSize > 0) // DATA REMAINING
+            {
+                DiscardAllReadBytes(ref dataBuffer);
+                return true; // DATA REMAINING -- CALL AGAIN
             }
-            QConsole.WriteLine("System", $"{Name}: Client: {ID} :: Found {packets.Count()} Packets...");
-            return true;
+            return false; // NO MORE DATA
         }
 
         private void BeginReceive(TcpClient connection, uint ID)
-        {            
-            byte[] dataBuffer = null;
-            void OnRecieve(object state)
+        {
+            QConsole.WriteLine(Name, $"Created Listener Thread: {Thread.CurrentThread.ManagedThreadId}");
+
+            MemoryStream dataBuffer = new MemoryStream();
+            byte[] networkStream = new byte[connection.Client.Available];
+
+            void NetworkAsyncCallback(int NewDataLength)
             {
-                if (this.OnReceive(ID, dataBuffer, connection.Available))
-                    Ready();
-                else return;
+                QConsole.WriteLine(Name, $"Incoming data received from {ID}: {NewDataLength} bytes");
+
+                //write new data to the end of the buffer, being careful to preserve previous data
+                dataBuffer.Seek(0, SeekOrigin.End);
+                dataBuffer.Write(networkStream, 0, NewDataLength); // write network stream to buffer
+
+                //read incoming data -- on TRUE, indicates there is data still in the buffer to process.
+                //run this function until all data is processed. For split packets, this will return false indicating no further
+                //processing shall be done until additional data is received.
+                while (OnReceive(ID, ref dataBuffer, NewDataLength))
+                {
+
+                }
+
+                //discard all used bytes after all OnReceive calls.
+                //this will leave only untouched/unread data.
+                DiscardAllReadBytes(ref dataBuffer);
             }
 
-            if (connection.Client.Available != 0)
+            SocketError ErrorCode = SocketError.Success;
+            while (connection.Connected)
             {
-                dataBuffer = new byte[connection.Client.Available];
-                connection.Client.Receive(dataBuffer);
-                OnRecieve(null);
-                return;
-            }            
-            void Ready()
-            {
-                dataBuffer = new byte[ReceiveAmount];
+                networkStream = new byte[ReceiveAmount];
                 try
-                {                    
+                {
                     //This will handle the client forcibly closing connection by raising an exception the moment connection is lost.
                     //Therefore, this condition is handled here
-                    connection?.Client.BeginReceive(dataBuffer, 0, ReceiveAmount, SocketFlags.None, OnRecieve, null);
+                    int ReceiveSize = connection.Client.Receive(networkStream, 0, ReceiveAmount, SocketFlags.None, out ErrorCode);
+                    if (ErrorCode != SocketError.Success)
+                        break;
+                    NetworkAsyncCallback(ReceiveSize);
                 }
-                catch(SocketException e)
+                catch (SocketException e)
                 {
-                  //Raise event and disconnect problem client
-                  OnForceClose(connection, ID);
-                  Disconnect(ID);
-                  return;
+                    ErrorCode = e.SocketErrorCode;
+                    break;
                 }
             }
-            Ready();
-        }        
+
+            //Raise event and disconnect problem client
+            Disconnect(ID, ErrorCode);
+            QConsole.WriteLine(Name, $"Closing Listener Thread: {Thread.CurrentThread.ManagedThreadId}");
+        }
         
         private void AcceptConnection(IAsyncResult ar)
         {
@@ -291,12 +349,17 @@ namespace QuazarAPI.Networking.Standard
         }        
         public ClientInfo GetClientInfoByID(uint ID) => _clientInfo[ID];
 
-        public void Disconnect(uint id)
+        /// <summary>
+        /// Disposes the connection stream, removes the Client, and invokes <see cref="OnConnectionsUpdated"/>
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="Reason"></param>
+        public void Disconnect(uint id, SocketError Reason = SocketError.Success)
         {
             try
             {
                 var client = Connections[id];
-                client.Close();
+                client.Dispose();
             }
             catch (SocketException exc)
             {
@@ -304,8 +367,8 @@ namespace QuazarAPI.Networking.Standard
             }
             _clients.Remove(id);
             _clientInfo.Remove(id);
-            OnConnectionsUpdated?.Invoke(this, null);
-            QConsole.WriteLine(Name, $"Disconnected Client {id}");
+            OnConnectionsUpdated?.Invoke(id, null);
+            QConsole.WriteLine(Name, $"Disconnected Client {id} " + (Reason != SocketError.Success ? $"[{Reason}]" : ""));
         }
 
         protected void StopListening()
@@ -337,22 +400,28 @@ namespace QuazarAPI.Networking.Standard
             };
             _clientInfo.Add(ID, info);
             ConnectionHistory.Add(info);
-            OnConnectionsUpdated?.Invoke(this, info);
-            BeginReceive(Connection, ID);
+            OnConnectionsUpdated?.Invoke(ID, info);
+            ClientStartListenThread(Connection, ID);
         }
 
         protected virtual void OnConnected(TcpClient Connection, uint ID)
         {
             QConsole.WriteLine(Name, $"\nConnected to Server\nIP: {Connection.Client.RemoteEndPoint}\nID: {ID}");
-            BeginReceive(Connection, ID);
+            ClientStartListenThread(Connection, ID);
         }
 
-        protected abstract void OnIncomingPacket(uint ID, T Data);
-        protected abstract void OnOutgoingPacket(uint ID, T Data);   
+        private void ClientStartListenThread(TcpClient Connection, uint ID)
+        {
+            Thread listenThread = new Thread(() => BeginReceive(Connection, ID));   
+            listenThread.Start();
+        }
+
+        private void InvokeOnIncomingPacket(uint ID, T Data) => OnIncomingPacket?.Invoke(ID, Data);
+        private void InvokeOnOutgoingPacket(uint ID, T Data) => OnOutgoingPacket?.Invoke(ID, Data);
 
         protected virtual void OnForceClose(TcpClient socket, uint ID)
         {
-            OnConnectionsUpdated?.Invoke(this, null);
+            OnConnectionsUpdated?.Invoke(ID, null);
             QConsole.WriteLine(Name, $"Client forcefully disconnected: {ID}");
         }
 
@@ -438,7 +507,7 @@ namespace QuazarAPI.Networking.Standard
             void _doSend(T packet)
             {
                 packet.Sent = DateTime.Now;
-                OnOutgoingPacket(ID, packet);
+                InvokeOnOutgoingPacket(ID, packet);
                 PacketQueue++;
                 if (_packetCache)
                     OutgoingTrans.Add(packet);
