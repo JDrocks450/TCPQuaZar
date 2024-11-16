@@ -129,8 +129,16 @@ namespace QuazarAPI.Networking.Data
                 disposedValue = true;
             }
         }
-
+        /// <summary>
+        /// Advances the <see cref="BodyPosition"/> by the <paramref name="amount"/> given.
+        /// </summary>
+        /// <param name="amount"></param>
         public void Advance(int amount = 1) => SetPosition((int)BodyPosition + amount);
+        /// <summary>
+        /// Reads all data until the end of the buffer
+        /// </summary>
+        /// <exception cref="NotImplementedException"></exception>
+        public byte[] ReadToEnd() => ReadBodyByteArray((int)(BodyLength - BodyPosition));
 
         // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
         // ~TPWPacket()

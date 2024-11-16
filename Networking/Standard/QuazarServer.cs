@@ -232,13 +232,31 @@ namespace QuazarAPI.Networking.Standard
             var packetBase = new T(); // use this to get packet format for individual 'product' (Quazar is used in many projects)
             uint packetHeaderLen = packetBase.GetHeaderSize(); // Get Packet Header -- basically get how much data we're waiting for
 
-            byte[] headerBuffer = new byte[packetHeaderLen]; // header data
-            dataBuffer.Read(headerBuffer, 0, (int)packetHeaderLen);
-            if (!packetBase.TryGetHeaderData(headerBuffer, out uint PayloadSize)) // try to get the size of the data
-            { // Error getting size of the data -- incorrect format                
+            bool packetHeaderSuccess = false;
+            uint PayloadSize = 0, headerFailCount = 0;
+            do
+            {
+                byte[] headerBuffer = new byte[packetHeaderLen]; // header data
+                dataBuffer.Read(headerBuffer, 0, (int)packetHeaderLen);
+                packetHeaderSuccess = packetBase.TryGetHeaderData(headerBuffer, out PayloadSize); // try to get the size of the data
+                if (!packetHeaderSuccess)
+                {
+                    // Error getting size of the data -- incorrect format                
+                    //no this data is not a packet, remove this data after returning to caller.                    
+                    if(headerFailCount == 0)
+                        QConsole.WriteLine("cQuaZar.PacketBase", "First packet in the response body isn't formatted correctly.");
+                    headerFailCount++;
+                    if (dataBuffer.Position >= dataBuffer.Length) // end of stream
+                        break;
+                }
+            }
+            while (!packetHeaderSuccess);
+            if (!packetHeaderSuccess)
+            {
+                // Error getting size of the data -- incorrect format                
                 //no this data is not a packet, remove this data after returning to caller.
-                QConsole.WriteLine("cQuaZar.PacketBase", "First packet in the response body isn't formatted correctly.");
-                return false;    
+                QConsole.WriteLine("cQuaZar.PacketBase", $"Read the entire stream -- no header found. (Attempts: {headerFailCount})");
+                return false;
             }
             dataBuffer.Seek(0, SeekOrigin.Begin); // move the buffer back to the start
             if (packetHeaderLen + PayloadSize > dataBuffer.Length)
