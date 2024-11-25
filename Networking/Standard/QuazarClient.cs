@@ -86,7 +86,7 @@ namespace QuazarAPI.Networking.Standard
         /// This method is called each time a packet is received and takes precidence over <see cref="AwaitPacket"/>
         /// <para>This will not fire unless the </para>
         /// </summary>
-        public event EventHandler<QEventArgs<PacketBase>> OnPacketReceived;
+        public event EventHandler<QEventArgs<T>> OnPacketReceived;
 
         public QuazarClient(string Name, IPAddress Address, int Port)
         {
@@ -114,8 +114,8 @@ namespace QuazarAPI.Networking.Standard
                 {
                     try
                     {
-                        PacketBase packet = await AwaitPacket();
-                        OnPacketReceived?.Invoke(this, new QEventArgs<PacketBase>() { Data = packet });
+                        T packet = await AwaitPacket();
+                        OnPacketReceived?.Invoke(this, new QEventArgs<T>() { Data = packet });
                     }
                     catch (TaskCanceledException)
                     {
