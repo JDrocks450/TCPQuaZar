@@ -41,6 +41,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Networking\Data\ExtendedBufferOperations.cs" />
+    <Compile Include="Networking\Data\ExtendedBufferOperationsExtensions.cs" />
     <Compile Include="Networking\Data\PacketBase.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Networking\Standard\ConnectionHelper.cs" />
