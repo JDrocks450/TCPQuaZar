@@ -1,7 +1,4 @@
-﻿using QuazarAPI.Networking.Standard;
-using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System;
 
 namespace QuazarAPI.Networking.Data
 {
