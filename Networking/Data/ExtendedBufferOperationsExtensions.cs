@@ -73,23 +73,26 @@ namespace QuazarAPI.Networking.Data
                 return EndianBitConverter.Big.ToUInt32(ReadBodyByteArray(_bodyBuffer, 4), 0);
             else return EndianBitConverter.Little.ToUInt32(ReadBodyByteArray(_bodyBuffer, 4), 0);
         }
-        public static string ReadBodyNullTerminatedString(this Stream _bodyBuffer, int MaxSize)
+        public static string ReadBodyNullTerminatedString(this Stream _bodyBuffer, int MaxSize, char NullTerminatorChar = '\0')
         {
             long BodyLength = _bodyBuffer.Length;
             long BodyPosition = _bodyBuffer.Position;
             int readLen = Math.Min(MaxSize, (int)(BodyLength - BodyPosition));
-            byte[] str = ReadBodyByteArray(_bodyBuffer, readLen);
             string myStr = "";
-            myStr = Encoding.UTF8.GetString(str);
-            if (myStr.Contains('\0'))
-                myStr = myStr.Remove(myStr.IndexOf('\0'));
-            return myStr;
-            for (int i = 0; i < readLen; i += 2)
-            {
-                short myChar = 0;
-                if (str[i] == '\0') break;
-                myStr += (char)str[i];
+            for (int i = 0; i < readLen; i += sizeof(char))
+            {                
+                int response = _bodyBuffer.ReadByte();
+                if (response == -1) break;
+                char character = (char)response;
+                if (character == NullTerminatorChar) break;
+                myStr += character;
             }
+            return myStr;
+            byte[] str = ReadBodyByteArray(_bodyBuffer, readLen);
+            //string myStr = "";
+            myStr = Encoding.UTF8.GetString(str);
+            if (myStr.Contains(NullTerminatorChar))
+                myStr = myStr.Remove(myStr.IndexOf(NullTerminatorChar));
             return myStr;
         }
         public static string ReadBodyNullTerminatedString(this Stream _bodyBuffer, int Offset, int MaxSize)
