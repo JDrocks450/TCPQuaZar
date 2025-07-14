@@ -29,8 +29,8 @@ namespace QuazarAPI.Networking.Standard
         /// <summary>
         /// The amount of data to receive per transmission
         /// </summary>
-        public int ReceiveAmount { get; protected set; } = 1000;
-        public int SendAmount { get; set; } = DefaultSendAmt;
+        public abstract int ReceiveAmount { get; }
+        public abstract int SendAmount { get; }
 
         /// <summary>
         /// The port of this <see cref="TcpListener"/>
