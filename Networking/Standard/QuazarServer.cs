@@ -141,6 +141,7 @@ namespace QuazarAPI.Networking.Standard
         {
             listener = new TcpListener(MyIP, PORT);
             listener.Server.SendBufferSize = SendAmount;
+            listener.Server.ReceiveBufferSize = ReceiveAmount;
             QConsole.WriteLine(Name, $"Server object init complete. IP: {MyIP} Port: {PORT}");
 
             SendThreadInvoke = new ManualResetEvent(false);
