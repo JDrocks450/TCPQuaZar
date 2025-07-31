@@ -19,6 +19,10 @@ namespace QuazarAPI.Networking.Data
         public DateTime Sent { get; set; }
         public DateTime Received { get; set; }
 
+        /// <summary>
+        /// The ID of the Quazar connection that sent this packet
+        /// </summary>
+        public uint ConnectionID { get; set; }
         internal List<PacketBase> splitPackets = new List<PacketBase>();        
         public bool HasChildPackets => splitPackets.Count > 0;
         public int ChildPacketAmount => splitPackets.Count;

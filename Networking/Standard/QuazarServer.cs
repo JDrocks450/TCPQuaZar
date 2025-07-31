@@ -283,6 +283,7 @@ namespace QuazarAPI.Networking.Standard
             foreach (var packet in packets)
             {
                 packet.Received = DateTime.Now;
+                packet.ConnectionID = ID;
                 if (_packetCache)
                     IncomingTrans.Add(packet);
                 InvokeOnIncomingPacket(ID, packet);
