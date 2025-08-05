@@ -388,6 +388,7 @@ namespace QuazarAPI.Networking.Standard
             if (_clients.Remove(id))
             {
                 OnConnectionsUpdated?.Invoke(id, null);
+                OnClientDisconnect(id);
                 QConsole.WriteLine(Name, $"Disconnected Client {id} " + (Reason != SocketError.Success ? $"[{Reason}]" : ""));
             }
             _clientInfo.Remove(id);                        
@@ -446,6 +447,7 @@ namespace QuazarAPI.Networking.Standard
             OnConnectionsUpdated?.Invoke(ID, null);
             QConsole.WriteLine(Name, $"Client forcefully disconnected: {ID}");
         }
+        protected virtual void OnClientDisconnect(uint ID) { }
 
         /// <summary>
         /// Gets an ID that isn't taken. This is not a GUID.
