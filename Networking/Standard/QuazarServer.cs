@@ -115,11 +115,10 @@ namespace QuazarAPI.Networking.Standard
         //**
 
         /// <summary>
-        /// Creates a <see cref="QuazarServer"/> with the specified parameters.
+        /// Creates a <see cref="QuazarServer{T}"/> with the specified parameters.
         /// </summary>
         /// <param name="name"></param>
         /// <param name="port"></param>
-        /// <param name="Waypoint"></param>
         /// <param name="backlog"></param>
         protected QuazarServer(string name, int port, uint backlog = 1, IPAddress ListenIP = default)
         {
