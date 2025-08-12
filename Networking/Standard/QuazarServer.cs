@@ -3,10 +3,12 @@ using QuazarAPI.Util;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Threading;
 
 namespace QuazarAPI.Networking.Standard
@@ -54,7 +56,7 @@ namespace QuazarAPI.Networking.Standard
         } = false;
 
         /// <summary>
-        /// The current packet queue, dont use this i fucked it.
+        /// The current packet queue, for use with TPW-SE only
         /// </summary>
         public uint PacketQueue
         {
@@ -62,7 +64,17 @@ namespace QuazarAPI.Networking.Standard
         } = 0x0A;
 
         /// <summary>
+        /// Gets the assembly info of the nio2so Voltron Protocol used by this server.
+        /// </summary>
+        public static Assembly QuaZarProtocolAssembly => typeof(PacketBase).Assembly;
+        /// <summary>
+        /// Gets the version of the nio2so Voltron Protocol used by this server.
+        /// </summary>
+        public static FileVersionInfo QuaZarProtocolVersion => FileVersionInfo.GetVersionInfo(QuaZarProtocolAssembly.Location);
+
+        /// <summary>
         /// Sets whether or not incoming / outgoing packets are cached.
+        /// <para/>Always enabled in debug builds.
         /// </summary>
         /// <param name="Enabled"></param>
         protected void SetPacketCaching(bool Enabled) =>
