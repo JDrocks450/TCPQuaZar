@@ -14,38 +14,109 @@ using System.Threading;
 namespace QuazarAPI.Networking.Standard
 {
     public abstract class QuazarServer<T> where T : PacketBase, new()
-    {        
+    {
+        public const int DefaultSendAmt = 256;
+        public const int DEFAULT_MAX_CONNECTIONS = 100;
+
         /// <summary>
-        /// The name of this <see cref="QuazarServer"/>
+        /// Server settings for a <see cref="QuazarServer{T}"/> instance
+        /// </summary>
+        public class QuazarServerSettings
+        {            
+            public QuazarServerSettings(string name, IPAddress listenIP, int port, bool UseSSL, uint maxConcurrentConnections = DEFAULT_MAX_CONNECTIONS)
+            {
+                if (name == null)
+                    throw new ArgumentNullException(nameof(name));
+                if (listenIP == null)
+                    throw new ArgumentNullException(nameof(listenIP));
+                Name = name;
+                ListenIP = listenIP;
+                Port = port;
+                MaxConcurrentConnections = maxConcurrentConnections;
+                this.UseSSL = UseSSL;
+            }
+
+            /// <summary>
+            /// The name of this <see cref="QuazarServer"/>
+            /// </summary>
+            public string Name { get; set; } = nameof(QuazarServer<T>);
+            public IPAddress ListenIP { get; }
+            public int Port { get; }
+            public bool UseSSL { get; set; }
+            public uint MaxConcurrentConnections { get; set; }
+
+            /// <summary>
+            /// The size of the buffer that will be allocated for each client connection to Voltron for receiving packets.
+            /// </summary>
+            public int ReceiveAmount { get; set; } = DefaultSendAmt;
+            /// <summary>
+            /// The size of the buffer that will be allocated for each client connection to Voltron for sending packets.
+            /// </summary>
+            public int SendAmount { get; set; } = DefaultSendAmt;
+            /// <summary>
+            /// Gets (or sets) whether or not to store outgoing/incoming packets to the <see cref="OutgoingTrans"/> and <see cref="IncomingTrans"/> collections
+            /// </summary>
+            public bool CachePackets
+            {
+                get;
+                set;
+            } = 
+#if DEBUG
+            true;
+#else
+            false;
+#endif
+            /// <summary>
+            /// All packets sent through <see cref="Send"/> functions will be ignored except when sent from  
+            /// </summary>
+            public bool ManualMode
+            {
+                get; set;
+            } = false;
+            /// <summary>
+            /// Disposes the packet passed to an overload of the function: <see cref="Send(uint, T[])"/>
+            /// <para>If <see cref="CachePackets"/> is <see langword="true"/> this will have no effect as the packets 
+            /// cannot be safely disposed as they are still referenced elsewhere</para>
+            /// </summary>
+            public bool DisposePacketOnSent { get; set; } = true;
+
+            /// <summary>
+            /// Gets whether the server has a <see cref="TcpListener"/> initialized
+            /// </summary>
+            public bool IsInitialized => ServerListener != null;
+            internal TcpListener ServerListener { get; set; } = null;
+        }
+        /// <summary>
+        /// The current settings for this <see cref="QuazarServer"/>
+        /// </summary>
+        public QuazarServerSettings Settings { get; }
+
+        /// <summary>
+        /// <inheritdoc cref="QuazarServer{T}.QuazarServerSettings.Name"/>
         /// </summary>
         public string Name
         {
-            get; set;
+            get => Settings.Name; set => Settings.Name = value;
         }
 
-        public const int DefaultSendAmt = 256;
-
         /// <summary>
-        /// The amount of data to receive per transmission
+        /// <inheritdoc cref="QuazarServerSettings.ReceiveAmount"/>
         /// </summary>
-        public abstract int ReceiveAmount { get; }
-        public abstract int SendAmount { get; }
+        public int ReceiveAmount => Settings.ReceiveAmount;
+        /// <summary>
+        /// <inheritdoc cref="QuazarServerSettings.SendAmount"/>
+        /// </summary>
+        public int SendAmount => Settings.SendAmount;
 
         /// <summary>
         /// The port of this <see cref="TcpListener"/>
         /// </summary>
-        public int PORT
-        {
-            get; set;
-        }
+        public int PORT => Settings.Port;
 
         /// <summary>
         /// The amount of connections accepted.
         /// </summary>
-        public uint BACKLOG
-        {
-            get;set;
-        }
+        public uint BACKLOG { get => Settings.MaxConcurrentConnections; set => Settings.MaxConcurrentConnections = value; }
 
         /// <summary>
         /// All packets sent through <see cref="Send"/> functions will be ignored except when sent from  
@@ -56,14 +127,6 @@ namespace QuazarAPI.Networking.Standard
         } = false;
 
         /// <summary>
-        /// The current packet queue, for use with TPW-SE only
-        /// </summary>
-        public uint PacketQueue
-        {
-            get; protected set;
-        } = 0x0A;
-
-        /// <summary>
         /// Gets the assembly info of the nio2so Voltron Protocol used by this server.
         /// </summary>
         public static Assembly QuaZarProtocolAssembly => typeof(PacketBase).Assembly;
@@ -72,33 +135,13 @@ namespace QuazarAPI.Networking.Standard
         /// </summary>
         public static FileVersionInfo QuaZarProtocolVersion => FileVersionInfo.GetVersionInfo(QuaZarProtocolAssembly.Location);
 
-        /// <summary>
-        /// Sets whether or not incoming / outgoing packets are cached.
-        /// <para/>Always enabled in debug builds.
-        /// </summary>
-        /// <param name="Enabled"></param>
-        protected void SetPacketCaching(bool Enabled) =>
-            _packetCache =
-#if DEBUG 
-            true;
-#else
-            Enabled;
-#endif
-
-        protected TcpListener listener;
+        protected TcpListener listener { get => Settings.ServerListener; set => Settings.ServerListener = value; }
         protected Dictionary<uint, TcpClient> _clients = new Dictionary<uint, TcpClient>();
         protected Dictionary<uint, ClientInfo> _clientInfo = new Dictionary<uint, ClientInfo>();
 
         public ObservableCollection<T> IncomingTrans = new ObservableCollection<T>(),
                                             OutgoingTrans = new ObservableCollection<T>();
         public ObservableCollection<ClientInfo> ConnectionHistory = new ObservableCollection<ClientInfo>();
-        protected bool _packetCache =
-#if DEBUG
-            true;
-#else
-            false;
-#endif                
-
         protected Socket Host => listener.Server;
         protected IDictionary<uint, TcpClient> Connections => _clients;
 
@@ -107,17 +150,15 @@ namespace QuazarAPI.Networking.Standard
         protected ManualResetEvent SendThreadInvoke;
 
         /// <summary>
-        /// Disposes the packet passed to an overload of the function: <see cref="Send(uint, T[])"/>
-        /// <para>If <see cref="CachePackets"/> is <see langword="true"/> this will have no effect as the packets 
-        /// cannot be safely disposed as they are still referenced elsewhere</para>
+        /// <inheritdoc cref="QuazarServer{T}.QuazarServerSettings.DisposePacketOnSent"/>/>
         /// </summary>
         protected bool DisposePacketOnSent { get; set; } = true;
         /// <summary>
-        /// Gets (or sets) whether or not to store outgoing/incoming packets to the <see cref="OutgoingTrans"/> and <see cref="IncomingTrans"/> collections
+        /// <inheritdoc cref="QuazarServer{T}.QuazarServerSettings.CachePackets"/>
         /// </summary>
-        protected bool CachePackets { get => _packetCache; set => _packetCache = value; }
+        protected bool CachePackets { get => Settings.CachePackets; set => Settings.CachePackets = value; }
 
-        public IPAddress MyIP { get; }
+        public IPAddress MyIP => Settings.ListenIP;
 
         //**EVENTS        
         public delegate void QuazarClientInfoHandler(uint ClientID, ClientInfo Info);
@@ -132,24 +173,31 @@ namespace QuazarAPI.Networking.Standard
         /// <param name="name"></param>
         /// <param name="port"></param>
         /// <param name="backlog"></param>
-        protected QuazarServer(string name, int port, uint backlog = 1, IPAddress ListenIP = default)
+        [Obsolete]
+        protected QuazarServer(string name, int port, uint backlog = DEFAULT_MAX_CONNECTIONS, IPAddress ListenIP = default) : 
+            this(new QuazarServerSettings(name, ListenIP ?? IPAddress.Loopback, port, false, backlog))
+        {            
+
+        }
+        /// <summary>
+        /// Creates a <see cref="QuazarServer{T}"/> with the specified <see cref="QuazarServerSettings"/>
+        /// </summary>
+        /// <param name="settings"></param>
+        protected QuazarServer(QuazarServerSettings settings)
         {
-            if (ListenIP == default) { ListenIP = IPAddress.Loopback; }
-            MyIP = ListenIP;
-            PORT = port;
-            BACKLOG = backlog;
-            Name = name;
-            
-            QConsole.WriteLine(Name, $"Server object created. Name: {name} Port: {port} IP: {ListenIP}");
-            
+            Settings = settings;
+            QConsole.WriteLine(Name, $"Server object created. Name: {Name} Port: {PORT} IP: {MyIP}");
             Init();
         }
 
         protected virtual void Init()
         {
-            listener = new TcpListener(MyIP, PORT);
-            listener.Server.SendBufferSize = SendAmount;
-            listener.Server.ReceiveBufferSize = ReceiveAmount;
+            listener = new TcpListener(MyIP, PORT);            
+            Host.SendBufferSize = SendAmount;
+            Host.ReceiveBufferSize = ReceiveAmount;
+            Host.NoDelay = true; // disable Nagle's algorithm
+            Host.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false); // do not allow multiple servers on the same address:port
+
             QConsole.WriteLine(Name, $"Server object init complete. IP: {MyIP} Port: {PORT}");
 
             SendThreadInvoke = new ManualResetEvent(false);
@@ -292,7 +340,7 @@ namespace QuazarAPI.Networking.Standard
             {
                 packet.Received = DateTime.Now;
                 packet.ConnectionID = ID;
-                if (_packetCache)
+                if (CachePackets)
                     IncomingTrans.Add(packet);
                 InvokeOnIncomingPacket(ID, packet);
             }            
@@ -361,6 +409,18 @@ namespace QuazarAPI.Networking.Standard
         
         private void AcceptConnection(IAsyncResult ar)
         {
+            lock (_clients) // is full?
+            {
+                int backlog = _clients.Count;
+                if (backlog >= BACKLOG)
+                {
+                    QConsole.WriteLine(Name, $"Server is full. Backlog: {backlog} >= {BACKLOG}");
+                    ar.AsyncWaitHandle.Close();
+                    Ready(); // ready to accept more connections
+                    return;
+                }
+            }
+            //can accept a new connection
             var newConnection = listener.EndAcceptTcpClient(ar);
             uint id = awardID();
             _clients.Add(id, newConnection);            
@@ -540,8 +600,8 @@ namespace QuazarAPI.Networking.Standard
             {
                 packet.Sent = DateTime.Now;
                 InvokeOnOutgoingPacket(ID, packet);
-                PacketQueue++;
-                if (_packetCache)
+
+                if (CachePackets)
                     OutgoingTrans.Add(packet);
                 Send(ID, packet.GetBytes(), ManualModeOverride);
                 if (!CachePackets && DisposePacketOnSent)
