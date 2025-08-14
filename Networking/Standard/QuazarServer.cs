@@ -7,8 +7,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 
 namespace QuazarAPI.Networking.Standard
@@ -22,18 +24,38 @@ namespace QuazarAPI.Networking.Standard
         /// Server settings for a <see cref="QuazarServer{T}"/> instance
         /// </summary>
         public class QuazarServerSettings
-        {            
-            public QuazarServerSettings(string name, IPAddress listenIP, int port, bool UseSSL, uint maxConcurrentConnections = DEFAULT_MAX_CONNECTIONS)
+        {       
+            /// <summary>
+            /// Configures the <see cref="QuazarServer{T}"/> as a Tcp Server without SSL
+            /// </summary>
+            /// <param name="Name"></param>
+            /// <param name="ListenIP"></param>
+            /// <param name="Port"></param>
+            /// <param name="MaxConcurrentConnections"></param>
+            /// <exception cref="ArgumentNullException"></exception>
+            public QuazarServerSettings(string Name, IPAddress ListenIP, int Port, uint MaxConcurrentConnections = DEFAULT_MAX_CONNECTIONS)
             {
-                if (name == null)
-                    throw new ArgumentNullException(nameof(name));
-                if (listenIP == null)
-                    throw new ArgumentNullException(nameof(listenIP));
-                Name = name;
-                ListenIP = listenIP;
-                Port = port;
-                MaxConcurrentConnections = maxConcurrentConnections;
-                this.UseSSL = UseSSL;
+                if (Name == null)
+                    throw new ArgumentNullException(nameof(Name));
+                if (ListenIP == null)
+                    throw new ArgumentNullException(nameof(ListenIP));
+                this.Name = Name;
+                this.ListenIP = ListenIP;
+                this.Port = Port;
+                this.MaxConcurrentConnections = MaxConcurrentConnections;
+            }
+            /// <summary>
+            /// Configures the <see cref="QuazarServer{T}"/> as a Tcp Server with SSL enabled and the authenticates using the provided <paramref name="SSLCertificate"/>
+            /// </summary>
+            /// <param name="Name"></param>
+            /// <param name="ListenIP"></param>
+            /// <param name="Port"></param>
+            /// <param name="SSLCertificate"></param>
+            /// <param name="MaxConcurrentConnections"></param>
+            public QuazarServerSettings(string Name, IPAddress ListenIP, int Port, X509Certificate2 SSLCertificate, uint MaxConcurrentConnections = DEFAULT_MAX_CONNECTIONS) :
+                this(Name,ListenIP,Port,MaxConcurrentConnections)
+            {
+                this.SSLCertificate = SSLCertificate;
             }
 
             /// <summary>
@@ -42,7 +64,6 @@ namespace QuazarAPI.Networking.Standard
             public string Name { get; set; } = nameof(QuazarServer<T>);
             public IPAddress ListenIP { get; }
             public int Port { get; }
-            public bool UseSSL { get; set; }
             public uint MaxConcurrentConnections { get; set; }
 
             /// <summary>
@@ -79,6 +100,15 @@ namespace QuazarAPI.Networking.Standard
             /// cannot be safely disposed as they are still referenced elsewhere</para>
             /// </summary>
             public bool DisposePacketOnSent { get; set; } = true;
+
+            /// <summary>
+            /// Dictates whether this <see cref="QuazarServer{T}"/> authenticates clients using SSL
+            /// </summary>
+            public bool UseSSL => SSLCertificate != default;
+            /// <summary>
+            /// The <see cref="X509Certificate2"/> used for authentication
+            /// </summary>
+            public X509Certificate2 SSLCertificate { get; set; }
 
             /// <summary>
             /// Gets whether the server has a <see cref="TcpListener"/> initialized
@@ -165,7 +195,7 @@ namespace QuazarAPI.Networking.Standard
         public delegate void QuazarDataHandler(uint ClientID, T Packet);
         public event QuazarDataHandler OnIncomingPacket, OnOutgoingPacket;
         public event QuazarClientInfoHandler OnConnectionsUpdated;
-        //**
+        //**        
 
         /// <summary>
         /// Creates a <see cref="QuazarServer{T}"/> with the specified parameters.
@@ -175,7 +205,7 @@ namespace QuazarAPI.Networking.Standard
         /// <param name="backlog"></param>
         [Obsolete]
         protected QuazarServer(string name, int port, uint backlog = DEFAULT_MAX_CONNECTIONS, IPAddress ListenIP = default) : 
-            this(new QuazarServerSettings(name, ListenIP ?? IPAddress.Loopback, port, false, backlog))
+            this(new QuazarServerSettings(name, ListenIP ?? IPAddress.Loopback, port, backlog))
         {            
 
         }
@@ -196,7 +226,7 @@ namespace QuazarAPI.Networking.Standard
             Host.SendBufferSize = SendAmount;
             Host.ReceiveBufferSize = ReceiveAmount;
             Host.NoDelay = true; // disable Nagle's algorithm
-            Host.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false); // do not allow multiple servers on the same address:port
+            Host.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false); // do not allow multiple servers on the same address:port            
 
             QConsole.WriteLine(Name, $"Server object init complete. IP: {MyIP} Port: {PORT}");
 
@@ -263,9 +293,9 @@ namespace QuazarAPI.Networking.Standard
                     Console.WriteLine(
                         client.Client.GetSocketOption(SocketOptionLevel.Tcp, (SocketOptionName)Enum.Parse(typeof(SocketOptionName), str)));                        
                 }
-                catch
+                catch (Exception ex)
                 {
-                    Console.WriteLine("ERROR");
+                    Console.WriteLine($"ERROR: {ex}");
                 }
             }
         }
@@ -316,6 +346,7 @@ namespace QuazarAPI.Networking.Standard
                 return false;
             }
             dataBuffer.Seek(0, SeekOrigin.Begin); // move the buffer back to the start
+            File.WriteAllBytes(@"c:\nio2so\dump.dat",dataBuffer.ToArray());
             if (packetHeaderLen + PayloadSize > dataBuffer.Length)
             { // PACKET IS SPLIT -- we will put the buffer back and wait for more data.                
                 return false; // This will tell it to not call receive function again until more data arrives
@@ -358,55 +389,90 @@ namespace QuazarAPI.Networking.Standard
         {
             QConsole.WriteLine(Name, $"Created Listener Thread: {Thread.CurrentThread.ManagedThreadId}");
 
-            MemoryStream dataBuffer = new MemoryStream();
-            byte[] networkStream = new byte[connection.Client.Available];
+            Exception SocketException = null;
+            MemoryStream networkDataBuffer = new MemoryStream();
+            byte[] networkData = new byte[connection.Client.Available];
 
-            void NetworkAsyncCallback(int NewDataLength)
+            try
             {
-                QConsole.WriteLine(Name, $"Incoming data received from {ID}: {NewDataLength} bytes");
-
-                //write new data to the end of the buffer, being careful to preserve previous data
-                dataBuffer.Seek(0, SeekOrigin.End);
-                dataBuffer.Write(networkStream, 0, NewDataLength); // write network stream to buffer
-
-                //read incoming data -- on TRUE, indicates there is data still in the buffer to process.
-                //run this function until all data is processed. For split packets, this will return false indicating no further
-                //processing shall be done until additional data is received.
-                while (OnReceive(ID, ref dataBuffer, NewDataLength))
+                //Open the Network Stream now (for SSL will be SslStream, otherwise NetworkStream)
+                using (Stream networkStream = OpenNetworkStream(connection, ID))
                 {
+                    void NetworkAsyncCallback(int NewDataLength)
+                    {
+                        QConsole.WriteLine(Name, $"Incoming data received from {ID}: {NewDataLength} bytes");
 
+                        //write new data to the end of the buffer, being careful to preserve previous data
+                        networkDataBuffer.Seek(0, SeekOrigin.End);
+                        networkDataBuffer.Write(networkData, 0, NewDataLength); // write network stream to buffer
+
+                        //read incoming data -- on TRUE, indicates there is data still in the buffer to process.
+                        //run this function until all data is processed. For split packets, this will return false indicating no further
+                        //processing shall be done until additional data is received.
+                        while (OnReceive(ID, ref networkDataBuffer, NewDataLength))
+                        {
+
+                        }
+
+                        //discard all used bytes after all OnReceive calls.
+                        //this will leave only untouched/unread data.
+                        DiscardAllReadBytes(ref networkDataBuffer);
+                    }
+
+                    //NETWORK RECEIVE LOOP
+                    while (connection.Connected)
+                    {
+                        networkData = new byte[ReceiveAmount];
+
+                        //This will handle the client forcibly closing connection by raising an exception the moment connection is lost.
+                        //Therefore, this condition is handled here
+                        int ReceiveSize = networkStream.Read(networkData, 0, ReceiveAmount);
+                        if (ReceiveSize == 0)
+                            continue; // cycle around and try to read again for ReadTimeout
+                        NetworkAsyncCallback(ReceiveSize);
+                    }
                 }
-
-                //discard all used bytes after all OnReceive calls.
-                //this will leave only untouched/unread data.
-                DiscardAllReadBytes(ref dataBuffer);
             }
-
-            SocketError ErrorCode = SocketError.Success;
-            while (connection.Connected)
+            catch (Exception ex)
             {
-                networkStream = new byte[ReceiveAmount];
-                try
-                {
-                    //This will handle the client forcibly closing connection by raising an exception the moment connection is lost.
-                    //Therefore, this condition is handled here
-                    int ReceiveSize = connection.Client.Receive(networkStream, 0, ReceiveAmount, SocketFlags.None, out ErrorCode);
-                    if (ErrorCode != SocketError.Success)
-                        break;
-                    NetworkAsyncCallback(ReceiveSize);
-                }
-                catch (SocketException e)
-                {
-                    ErrorCode = e.SocketErrorCode;
-                    break;
-                }
+                SocketException = ex;
             }
-
-            //Raise event and disconnect problem client
-            Disconnect(ID, ErrorCode);
-            QConsole.WriteLine(Name, $"Closing Listener Thread: {Thread.CurrentThread.ManagedThreadId}");
+            finally
+            {
+                //dispose data buffer
+                networkDataBuffer.Dispose();
+            }
+            
+            //Raise event and disconnect client (optionally with an error if one occurred)
+            Disconnect(ID, SocketException);
+            QConsole.WriteLine(Name, $"Listener Thread: {Thread.CurrentThread.ManagedThreadId} has completed and is now closed.");
         }
         
+        /// <summary>
+        /// Opens a new <see cref="Stream"/> for the <see cref="TcpClient"/> <paramref name="Connection"/> and configures it for SSL if <see cref="QuazarServerSettings.UseSSL"/> is <see langword="true"/>
+        /// </summary>
+        /// <param name="Connection"></param>
+        /// <param name="ID"></param>
+        /// <returns></returns>
+        private Stream OpenNetworkStream(TcpClient Connection, uint ID)
+        {
+            //TCP ONLY
+            int ReadTimeout = Timeout.Infinite; // TSO can go very long without sending data, so we don't want to timeout in any scenario as long as the connection is open.
+
+            Stream underlyingStream = Connection.GetStream();
+            if (!Settings.UseSSL) {
+                //SET READ TIMEOUTS
+                underlyingStream.ReadTimeout = ReadTimeout;                
+                return underlyingStream; 
+            }
+            //SSL
+            SslStream ssl = new SslStream(underlyingStream, false)
+            {
+                ReadTimeout = ReadTimeout
+            };                                    
+            return ssl;
+        }
+
         private void AcceptConnection(IAsyncResult ar)
         {
             lock (_clients) // is full?
@@ -416,15 +482,24 @@ namespace QuazarAPI.Networking.Standard
                 {
                     QConsole.WriteLine(Name, $"Server is full. Backlog: {backlog} >= {BACKLOG}");
                     ar.AsyncWaitHandle.Close();
-                    Ready(); // ready to accept more connections
-                    return;
+                    goto reset;
                 }
             }
             //can accept a new connection
             var newConnection = listener.EndAcceptTcpClient(ar);
             uint id = awardID();
-            _clients.Add(id, newConnection);            
+            _clients.Add(id, newConnection);     
+            if(Settings.UseSSL)
+            {                
+                //SSL HANDSHAKE
+                if(!SslUtil.SslHandshake(Settings.SSLCertificate, newConnection, id, out Exception FailureReason))
+                {
+                    Disconnect(id,FailureReason);
+                    goto reset;
+                }
+            }
             OnClientConnect(newConnection, id);
+        reset:
             Ready();
         }
 
@@ -442,7 +517,7 @@ namespace QuazarAPI.Networking.Standard
         /// </summary>
         /// <param name="id"></param>
         /// <param name="Reason"></param>
-        public void Disconnect(uint id, SocketError Reason = SocketError.Success)
+        public void Disconnect(uint id, Exception SocketError = default)
         {
             try
             {
@@ -457,7 +532,7 @@ namespace QuazarAPI.Networking.Standard
             {
                 OnConnectionsUpdated?.Invoke(id, null);
                 OnClientDisconnect(id);
-                QConsole.WriteLine(Name, $"Disconnected Client {id} " + (Reason != SocketError.Success ? $"[{Reason}]" : ""));
+                QConsole.WriteLine(Name, $"Disconnected Client {id}. Reason: " + ((SocketError != default) ? $"Socket Error/Exception: [{SocketError}]" : "Expected Disconnect"));
             }
             _clientInfo.Remove(id);                        
         }
