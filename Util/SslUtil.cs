@@ -40,7 +40,7 @@ namespace QuazarAPI.Util
 
             //display information
             QConsole.WriteLine(nameof(SslUtil), $"Client {ID} SSL Authentication Completed.");
-            QConsole.WriteLine(nameof(SslUtil), $"===SSL INFORMATION===\nSecurity Level:\n{ssl.GetSecurityLevelString()}\nServices:\n{ssl.GetSecurityServicesString()}");
+            //QConsole.WriteLine(nameof(SslUtil), $"===SSL INFORMATION===\nSecurity Level:\n{ssl.GetSecurityLevelString()}\nServices:\n{ssl.GetSecurityServicesString()}");
 
             // Add the new SslStream to the dictionary
             _streams.AddOrUpdate(ID, ssl, (key, oldValue) => ssl);
