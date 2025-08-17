@@ -1,4 +1,6 @@
-﻿using QuazarAPI.Networking.Data;
+﻿using OpenSSL.SSL;
+using OpenSSL.X509;
+using QuazarAPI.Networking.Data;
 using QuazarAPI.Util;
 using System;
 using System.Collections.Generic;
@@ -7,10 +9,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Reflection;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 
 namespace QuazarAPI.Networking.Standard
@@ -45,17 +45,18 @@ namespace QuazarAPI.Networking.Standard
                 this.MaxConcurrentConnections = MaxConcurrentConnections;
             }
             /// <summary>
-            /// Configures the <see cref="QuazarServer{T}"/> as a Tcp Server with SSL enabled and the authenticates using the provided <paramref name="SSLCertificate"/>
+            /// Configures the <see cref="QuazarServer{T}"/> as a Tcp Server with SSL enabled and the authenticates using the provided <paramref name="SSLChain"/>
             /// </summary>
             /// <param name="Name"></param>
             /// <param name="ListenIP"></param>
             /// <param name="Port"></param>
-            /// <param name="SSLCertificate"></param>
+            /// <param name="SSLChain"></param>
             /// <param name="MaxConcurrentConnections"></param>
-            public QuazarServerSettings(string Name, IPAddress ListenIP, int Port, X509Certificate2 SSLCertificate, uint MaxConcurrentConnections = DEFAULT_MAX_CONNECTIONS) :
+            public QuazarServerSettings(string Name, IPAddress ListenIP, int Port, X509Certificate ServerCertificate, uint MaxConcurrentConnections = DEFAULT_MAX_CONNECTIONS, X509Chain ClientCertificates = default) :
                 this(Name,ListenIP,Port,MaxConcurrentConnections)
             {
-                this.SSLCertificate = SSLCertificate;
+                this.ClientChain = ClientCertificates;
+                this.ServerCertificate = ServerCertificate;
             }
 
             /// <summary>
@@ -104,11 +105,15 @@ namespace QuazarAPI.Networking.Standard
             /// <summary>
             /// Dictates whether this <see cref="QuazarServer{T}"/> authenticates clients using SSL
             /// </summary>
-            public bool UseSSL => SSLCertificate != default;
+            public bool UseSSL => ServerCertificate != default;
             /// <summary>
-            /// The <see cref="X509Certificate2"/> used for authentication
+            /// The certificate to use for this server when <see cref="UseSSL"/> is enabled
             /// </summary>
-            public X509Certificate2 SSLCertificate { get; set; }
+            public X509Certificate ServerCertificate { get; set; }
+            /// <summary>
+            /// Optionally, you can specify an <see cref="X509Chain"/> for client authentication
+            /// </summary>
+            public X509Chain ClientChain { get; set; }
 
             /// <summary>
             /// Gets whether the server has a <see cref="TcpListener"/> initialized
@@ -214,7 +219,7 @@ namespace QuazarAPI.Networking.Standard
         /// </summary>
         /// <param name="settings"></param>
         protected QuazarServer(QuazarServerSettings settings)
-        {
+        {            
             Settings = settings;
             QConsole.WriteLine(Name, $"Server object created. Name: {Name} Port: {PORT} IP: {MyIP}");
             Init();
@@ -222,6 +227,8 @@ namespace QuazarAPI.Networking.Standard
 
         protected virtual void Init()
         {
+            SslStream.USE_SNI = false;
+
             listener = new TcpListener(MyIP, PORT);            
             Host.SendBufferSize = SendAmount;
             Host.ReceiveBufferSize = ReceiveAmount;
@@ -259,7 +266,7 @@ namespace QuazarAPI.Networking.Standard
                                 do
                                 {
                                     sentAmount = buffer.Read(network_buffer, 0, SendAmount);
-                                    connection.GetStream().Write(network_buffer, 0, sentAmount);
+                                    OpenNetworkStream(connection,ID).Write(network_buffer, 0, sentAmount);
                                     if (s_buffer.Length > SendAmount)
                                         piecesSent++;                                    
                                 }
@@ -447,29 +454,27 @@ namespace QuazarAPI.Networking.Standard
             Disconnect(ID, SocketException);
             QConsole.WriteLine(Name, $"Listener Thread: {Thread.CurrentThread.ManagedThreadId} has completed and is now closed.");
         }
-        
+
         /// <summary>
         /// Opens a new <see cref="Stream"/> for the <see cref="TcpClient"/> <paramref name="Connection"/> and configures it for SSL if <see cref="QuazarServerSettings.UseSSL"/> is <see langword="true"/>
         /// </summary>
         /// <param name="Connection"></param>
         /// <param name="ID"></param>
         /// <returns></returns>
-        private Stream OpenNetworkStream(TcpClient Connection, uint ID)
+        private Stream? OpenNetworkStream(TcpClient Connection, uint ID)
         {
             //TCP ONLY
             int ReadTimeout = Timeout.Infinite; // TSO can go very long without sending data, so we don't want to timeout in any scenario as long as the connection is open.
 
             Stream underlyingStream = Connection.GetStream();
-            if (!Settings.UseSSL) {
+            if (!Settings.UseSSL)
+            {
                 //SET READ TIMEOUTS
-                underlyingStream.ReadTimeout = ReadTimeout;                
-                return underlyingStream; 
+                underlyingStream.ReadTimeout = ReadTimeout;
+                return underlyingStream;
             }
             //SSL
-            SslStream ssl = new SslStream(underlyingStream, false)
-            {
-                ReadTimeout = ReadTimeout
-            };                                    
+            SslStream ssl = SslUtil.GetSslStream(ID);
             return ssl;
         }
 
@@ -488,15 +493,11 @@ namespace QuazarAPI.Networking.Standard
             //can accept a new connection
             var newConnection = listener.EndAcceptTcpClient(ar);
             uint id = awardID();
-            _clients.Add(id, newConnection);     
-            if(Settings.UseSSL)
-            {                
-                //SSL HANDSHAKE
-                if(!SslUtil.SslHandshake(Settings.SSLCertificate, newConnection, id, out Exception FailureReason))
-                {
-                    Disconnect(id,FailureReason);
-                    goto reset;
-                }
+            _clients.Add(id, newConnection);
+            if (Settings.UseSSL)
+            {
+                //SSL Handshake
+                SslUtil.SslHandshake(Settings.ServerCertificate, newConnection, id, Settings.ClientChain);
             }
             OnClientConnect(newConnection, id);
         reset:
@@ -505,6 +506,7 @@ namespace QuazarAPI.Networking.Standard
 
         public abstract void Start();
         public abstract void Stop();
+
         public IEnumerable<(uint ID, TcpClient Client)> GetAllConnectedClients()
         {
             foreach (var connection in _clients)
@@ -521,8 +523,10 @@ namespace QuazarAPI.Networking.Standard
         {
             try
             {
+                if(Settings.UseSSL)
+                    SslUtil.RemoveSslStream(id); // remove the SSL stream if it exists
                 if(Connections.TryGetValue(id, out TcpClient client))
-                    client.Dispose();
+                    client.Dispose();                
             }
             catch (SocketException exc)
             {
