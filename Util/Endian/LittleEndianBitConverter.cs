@@ -1,5 +1,4 @@
-
-namespace MiscUtil.Conversion
+namespace QuazarAPI.Util.Endian
 {
 	/// <summary>
 	/// Implementation of EndianBitConverter which converts to/from little-endian
@@ -58,7 +57,7 @@ namespace MiscUtil.Conversion
 			long ret = 0;
 			for (int i=0; i < bytesToConvert; i++)
 			{
-				ret = unchecked((ret << 8) | buffer[startIndex+bytesToConvert-1-i]);
+				ret = unchecked(ret << 8 | buffer[startIndex+bytesToConvert-1-i]);
 			}
 			return ret;
 		}

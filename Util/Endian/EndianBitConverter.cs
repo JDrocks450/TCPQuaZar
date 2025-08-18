@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace MiscUtil.Conversion
+namespace QuazarAPI.Util.Endian
 {
 	/// <summary>
 	/// Equivalent of System.BitConverter, but with either endianness.
@@ -119,7 +119,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A character formed by two bytes beginning at startIndex.</returns>
 		public char ToChar (byte[] value, int startIndex)
 		{
-			return unchecked((char) (CheckedFromBytes(value, startIndex, 2)));
+			return unchecked((char) CheckedFromBytes(value, startIndex, 2));
 		}
 
 		/// <summary>
@@ -154,7 +154,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A 16-bit signed integer formed by two bytes beginning at startIndex.</returns>
 		public short ToInt16 (byte[] value, int startIndex)
 		{
-			return unchecked((short) (CheckedFromBytes(value, startIndex, 2)));
+			return unchecked((short) CheckedFromBytes(value, startIndex, 2));
 		}
 
 		/// <summary>
@@ -165,7 +165,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A 32-bit signed integer formed by four bytes beginning at startIndex.</returns>
 		public int ToInt32 (byte[] value, int startIndex)
 		{
-			return unchecked((int) (CheckedFromBytes(value, startIndex, 4)));
+			return unchecked((int) CheckedFromBytes(value, startIndex, 4));
 		}
 
 		/// <summary>
@@ -187,7 +187,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A 16-bit unsigned integer formed by two bytes beginning at startIndex.</returns>
 		public ushort ToUInt16 (byte[] value, int startIndex)
 		{
-			return unchecked((ushort) (CheckedFromBytes(value, startIndex, 2)));
+			return unchecked((ushort) CheckedFromBytes(value, startIndex, 2));
 		}
 
 		/// <summary>
@@ -198,7 +198,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A 32-bit unsigned integer formed by four bytes beginning at startIndex.</returns>
 		public uint ToUInt32 (byte[] value, int startIndex)
 		{
-			return unchecked((uint) (CheckedFromBytes(value, startIndex, 4)));
+			return unchecked((uint) CheckedFromBytes(value, startIndex, 4));
 		}
 
 		/// <summary>
@@ -209,7 +209,7 @@ namespace MiscUtil.Conversion
 		/// <returns>A 64-bit unsigned integer formed by eight bytes beginning at startIndex.</returns>
 		public ulong ToUInt64 (byte[] value, int startIndex)
 		{
-			return unchecked((ulong) (CheckedFromBytes(value, startIndex, 8)));
+			return unchecked((ulong) CheckedFromBytes(value, startIndex, 8));
 		}
 
 		/// <summary>
@@ -325,7 +325,7 @@ namespace MiscUtil.Conversion
 			{
 				parts[i] = ToInt32(value, startIndex+i*4);
 			}
-			return new Decimal(parts);
+			return new decimal(parts);
 		}
 
 		/// <summary>
@@ -661,7 +661,7 @@ namespace MiscUtil.Conversion
 			/// <param name="i">The integer value of the new instance.</param>
 			internal Int32SingleUnion(int i)
 			{
-				this.f = 0; // Just to keep the compiler happy
+                f = 0; // Just to keep the compiler happy
 				this.i = i;
 			}
 
@@ -671,7 +671,7 @@ namespace MiscUtil.Conversion
 			/// <param name="f">The floating point value of the new instance.</param>
 			internal Int32SingleUnion(float f)
 			{
-				this.i = 0; // Just to keep the compiler happy
+                i = 0; // Just to keep the compiler happy
 				this.f = f;
 			}
 

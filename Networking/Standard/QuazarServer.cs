@@ -353,7 +353,6 @@ namespace QuazarAPI.Networking.Standard
                 return false;
             }
             dataBuffer.Seek(0, SeekOrigin.Begin); // move the buffer back to the start
-            File.WriteAllBytes(@"c:\nio2so\dump.dat",dataBuffer.ToArray());
             if (packetHeaderLen + PayloadSize > dataBuffer.Length)
             { // PACKET IS SPLIT -- we will put the buffer back and wait for more data.                
                 return false; // This will tell it to not call receive function again until more data arrives

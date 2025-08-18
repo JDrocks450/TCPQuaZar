@@ -1,9 +1,6 @@
-﻿using OpenSSL.Crypto;
-using OpenSSL.SSL;
+﻿using OpenSSL.SSL;
 using OpenSSL.X509;
-using System;
 using System.Collections.Concurrent;
-using System.IO;
 using System.Net.Sockets;
 using System.Text;
 

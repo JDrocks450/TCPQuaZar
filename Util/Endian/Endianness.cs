@@ -1,5 +1,4 @@
-
-namespace MiscUtil.Conversion
+namespace QuazarAPI.Util.Endian
 {
 	/// <summary>
 	/// Endianness of a converter

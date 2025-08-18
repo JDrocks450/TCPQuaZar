@@ -1,4 +1,4 @@
-﻿using MiscUtil.Conversion;
+﻿using QuazarAPI.Util.Endian;
 using System;
 using System.IO;
 

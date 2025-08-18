@@ -1,7 +1,6 @@
-﻿using MiscUtil.Conversion;
+﻿using QuazarAPI.Util.Endian;
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 
 namespace QuazarAPI.Networking.Data

@@ -1,5 +1,4 @@
-
-namespace MiscUtil.Conversion
+namespace QuazarAPI.Util.Endian
 {
 	/// <summary>
 	/// Implementation of EndianBitConverter which converts to/from big-endian
@@ -59,7 +58,7 @@ namespace MiscUtil.Conversion
 			long ret = 0;
 			for (int i=0; i < bytesToConvert; i++)
 			{
-				ret = unchecked((ret << 8) | buffer[startIndex+i]);
+				ret = unchecked(ret << 8 | buffer[startIndex+i]);
 			}
 			return ret;
 		}
