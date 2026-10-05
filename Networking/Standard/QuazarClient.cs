@@ -74,7 +74,7 @@ namespace QuazarAPI.Networking.Standard
                         break;
                     case ClientRecvStrategy.EVENT_BASED:
                         _packetTask = CreatePacketTask();
-                        _packetTask.Start();
+                        //_packetTask.Start();
                         break;
                 }
             }
