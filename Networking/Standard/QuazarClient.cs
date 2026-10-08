@@ -20,7 +20,8 @@ namespace QuazarAPI.Networking.Standard
         /// The <c>AwaitPacket</c> event is disabled and a background worker thread will wait for packets to come in and 
         /// raise the <c>OnPacketReceived</c> event
         /// </summary>
-        EVENT_BASED
+        EVENT_BASED_PACKET,
+        EVENT_BASED_DATA
     }
 
     /// <summary>
@@ -48,7 +49,7 @@ namespace QuazarAPI.Networking.Standard
         /// so switch it with caution and read the notes on each mode to pick the right one for the 
         /// current usecase</para>
         /// <para>Switching this mode submits a request which is dealt with as soon as the current task is complete.
-        /// If it is awaiting a packet in <see cref="ClientRecvStrategy.EVENT_BASED"/>, the request to switch mode
+        /// If it is awaiting a packet in <see cref="ClientRecvStrategy.EVENT_BASED_PACKET"/>, the request to switch mode
         /// is not guaranteed to be handled until the next packet is received.</para>
         /// </summary>
         public ClientRecvStrategy Strategy
@@ -72,9 +73,12 @@ namespace QuazarAPI.Networking.Standard
                     case ClientRecvStrategy.ASYNC_AWAIT:
 
                         break;
-                    case ClientRecvStrategy.EVENT_BASED:
+                    case ClientRecvStrategy.EVENT_BASED_PACKET:
                         _packetTask = CreatePacketTask();
                         //_packetTask.Start();
+                        break;
+                    case ClientRecvStrategy.EVENT_BASED_DATA:
+
                         break;
                 }
             }
@@ -82,9 +86,14 @@ namespace QuazarAPI.Networking.Standard
 
         /// <summary>
         /// This method is called each time a packet is received and takes precidence over <see cref="AwaitPacket"/>
-        /// <para>This will not fire unless the </para>
+        /// <para>This will not fire unless the <see cref="Strategy"/> is set to <see cref="ClientRecvStrategy.EVENT_BASED_PACKET"/></para>
         /// </summary>
         public event EventHandler<QEventArgs<T>> OnPacketReceived;
+        /// <summary>
+        /// This event is fired whenever new data is received and is called no matter what <see cref="Strategy"/> you are using.
+        /// <para/>Note: This is called syncronously to ensure that any time-sensitive logic is handled in order it arrives in, you should do any long tasks on a background thread.
+        /// </summary>
+        public event EventHandler<QEventArgs<byte[]>> OnDataReceived;
 
         public QuazarClient(string Name, IPAddress Address, int Port)
         {
@@ -100,7 +109,10 @@ namespace QuazarAPI.Networking.Standard
             _recvInvoke = new ManualResetEvent(false);
             _recvEnqueuePause = new ManualResetEvent(true);
 
-            _client = new TcpClient();
+            _client = new TcpClient()
+            {
+                LingerState = new LingerOption(true, 0),                
+            };
             _packetTask = CreatePacketTask();
         }
 
@@ -108,7 +120,7 @@ namespace QuazarAPI.Networking.Standard
         {
             return new Task(async delegate ()
             {
-                while (Strategy == ClientRecvStrategy.EVENT_BASED)
+                while (Strategy == ClientRecvStrategy.EVENT_BASED_PACKET)
                 {
                     try
                     {
@@ -208,6 +220,7 @@ namespace QuazarAPI.Networking.Standard
                 }                
             }
         }
+
         public Task<byte[]> AwaitResponse()
         {
             return Task.Run(delegate
@@ -243,6 +256,7 @@ namespace QuazarAPI.Networking.Standard
                 try
                 {
                     byte[] Data = await awaitData();
+                    OnDataReceived?.Invoke(this, new(Data));
                     await EnqueueData(Data);
                 }
                 catch (SocketException e) // Connection Error
@@ -261,11 +275,16 @@ namespace QuazarAPI.Networking.Standard
             return data;
         }
 
-        public void Dispose()
+        public async void Dispose()
         {
             if (IsDisposed) return;
             _recvStop = true;
             _recvTask?.Wait();
+
+            //**safe close TCPClient
+            await _client.Client.DisconnectAsync(false);
+            _client.Close();
+           
             _client.Dispose();
             IsDisposed = true;
         }

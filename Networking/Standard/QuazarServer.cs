@@ -434,7 +434,7 @@ namespace QuazarAPI.Networking.Standard
                         //Therefore, this condition is handled here
                         int ReceiveSize = networkStream.Read(networkData, 0, ReceiveAmount);
                         if (ReceiveSize == 0)
-                            continue; // cycle around and try to read again for ReadTimeout
+                            break; // reading 0 bytes means the connection is closed. break here
                         NetworkAsyncCallback(ReceiveSize);
                     }
                 }
