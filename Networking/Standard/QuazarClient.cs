@@ -20,8 +20,7 @@ namespace QuazarAPI.Networking.Standard
         /// The <c>AwaitPacket</c> event is disabled and a background worker thread will wait for packets to come in and 
         /// raise the <c>OnPacketReceived</c> event
         /// </summary>
-        EVENT_BASED_PACKET,
-        EVENT_BASED_DATA
+        EVENT_BASED
     }
 
     /// <summary>
@@ -29,6 +28,22 @@ namespace QuazarAPI.Networking.Standard
     /// </summary>
     public abstract class QuazarClient<T> : IDisposable where T : PacketBase, new()
     {
+        /// <summary>
+        /// Settings in relation to the <see cref="QuazarClient{T}"/> events
+        /// </summary>
+        public struct QuazarEventParameters
+        {
+            /// <summary>
+            /// Enables or disables the packet parsing subsystem, which in turn enables or disables the <see cref="OnPacketReceived"/> event.
+            /// </summary>
+            public bool OnPacketReceivedEnabled;
+
+            public static QuazarEventParameters Default => new QuazarEventParameters()
+            {
+                OnPacketReceivedEnabled = true
+            };
+        }
+        public QuazarEventParameters EventParameters { get; set; } = QuazarEventParameters.Default;
         public bool IsDisposed { get; private set; }
         public bool IsConnected => _client != null && _client.Connected;
         protected TcpClient _client;
@@ -39,6 +54,7 @@ namespace QuazarAPI.Networking.Standard
         protected readonly List<ArraySegment<byte>> _recvQueue;
         private ManualResetEvent _recvInvoke, _recvEnqueuePause;
         private ClientRecvStrategy _strategy = ClientRecvStrategy.ASYNC_AWAIT;
+        
 
         //EVENTS
         public event EventHandler<QEventArgs<Exception>> OnDisconnect;
@@ -49,8 +65,8 @@ namespace QuazarAPI.Networking.Standard
         /// so switch it with caution and read the notes on each mode to pick the right one for the 
         /// current usecase</para>
         /// <para>Switching this mode submits a request which is dealt with as soon as the current task is complete.
-        /// If it is awaiting a packet in <see cref="ClientRecvStrategy.EVENT_BASED_PACKET"/>, the request to switch mode
-        /// is not guaranteed to be handled until the next packet is received.</para>
+        /// If it is awaiting a packet in <see cref="ClientRecvStrategy.EVENT_BASED"/>, the request to switch mode
+        /// is not guaranteed to be handled until the next packet is received.</para> <see cref=""/>
         /// </summary>
         public ClientRecvStrategy Strategy
         {
@@ -73,12 +89,9 @@ namespace QuazarAPI.Networking.Standard
                     case ClientRecvStrategy.ASYNC_AWAIT:
 
                         break;
-                    case ClientRecvStrategy.EVENT_BASED_PACKET:
+                    case ClientRecvStrategy.EVENT_BASED:
                         _packetTask = CreatePacketTask();
                         //_packetTask.Start();
-                        break;
-                    case ClientRecvStrategy.EVENT_BASED_DATA:
-
                         break;
                 }
             }
@@ -86,7 +99,7 @@ namespace QuazarAPI.Networking.Standard
 
         /// <summary>
         /// This method is called each time a packet is received and takes precidence over <see cref="AwaitPacket"/>
-        /// <para>This will not fire unless the <see cref="Strategy"/> is set to <see cref="ClientRecvStrategy.EVENT_BASED_PACKET"/></para>
+        /// <para>This will not fire unless the <see cref="Strategy"/> is set to <see cref="ClientRecvStrategy.EVENT_BASED"/></para>
         /// </summary>
         public event EventHandler<QEventArgs<T>> OnPacketReceived;
         /// <summary>
@@ -95,6 +108,13 @@ namespace QuazarAPI.Networking.Standard
         /// </summary>
         public event EventHandler<QEventArgs<byte[]>> OnDataReceived;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="QuazarClient{T}"/> class with the given <paramref name="Name"/>, <paramref name="Address"/>, and <paramref name="Port"/>
+        /// </summary>
+        /// <param name="Name"></param>
+        /// <param name="Address"></param>
+        /// <param name="Port"></param>
+        /// <exception cref="ArgumentNullException"></exception>
         public QuazarClient(string Name, IPAddress Address, int Port)
         {
             if (Address is null)
@@ -115,12 +135,25 @@ namespace QuazarAPI.Networking.Standard
             };
             _packetTask = CreatePacketTask();
         }
+        /// <summary>
+        /// Initializes a new instance of the <see cref="QuazarClient{T}"/> class with the given <paramref name="Name"/>, <paramref name="Address"/>, <paramref name="Port"/>, and <paramref name="quazarEventParameters"/>
+        /// <para/>This will set <see cref="Strategy"/> to <see cref="ClientRecvStrategy.EVENT_BASED"/> and the <see cref="EventParameters"/> will dictate how the events are handled.
+        /// </summary>
+        /// <param name="Name"></param>
+        /// <param name="Address"></param>
+        /// <param name="Port"></param>
+        /// <param name="quazarEventParameters"></param>
+        public QuazarClient(string Name, IPAddress Address, int Port, QuazarEventParameters quazarEventParameters) : this(Name, Address, Port)
+        {
+            this.EventParameters = quazarEventParameters;
+            Strategy = ClientRecvStrategy.EVENT_BASED;
+        }
 
         private Task CreatePacketTask()
         {
             return new Task(async delegate ()
             {
-                while (Strategy == ClientRecvStrategy.EVENT_BASED_PACKET)
+                while (Strategy == ClientRecvStrategy.EVENT_BASED)
                 {
                     try
                     {
@@ -189,12 +222,24 @@ namespace QuazarAPI.Networking.Standard
 
         public async Task<T> AwaitPacket()
         {
+            void CHECK_CANCEL()
+            {
+                if (Strategy != ClientRecvStrategy.EVENT_BASED)
+                    throw new TaskCanceledException("Strategy was changed from Event-Based");
+            }
+
             var Data = await AwaitResponse();            
             using (MemoryStream networkData = new MemoryStream())
             {
                 await networkData.WriteAsync(Data, 0, Data.Length);                    
                 while (true)
                 {
+                    CHECK_CANCEL();
+                    if (EventParameters.OnPacketReceivedEnabled == false)
+                    {
+                        Thread.Sleep(1000);
+                        continue;
+                    }
                     try
                     {
                         var packet = PacketBase.Parse<T>(networkData.ToArray(), out int EndIndex);
@@ -215,6 +260,7 @@ namespace QuazarAPI.Networking.Standard
                     {
                         QConsole.WriteLine(Name, ex.ToString());
                     }
+                    CHECK_CANCEL();
                     Data = await AwaitResponse();
                     await networkData.WriteAsync(Data, 0, Data.Length);
                 }                
@@ -256,7 +302,8 @@ namespace QuazarAPI.Networking.Standard
                 try
                 {
                     byte[] Data = await awaitData();
-                    OnDataReceived?.Invoke(this, new(Data));
+                    if (Strategy == ClientRecvStrategy.EVENT_BASED)
+                        OnDataReceived?.Invoke(this, new(Data));
                     await EnqueueData(Data);
                 }
                 catch (SocketException e) // Connection Error
