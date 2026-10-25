@@ -72,6 +72,18 @@ namespace QuazarAPI.Networking.Data
                 return EndianBitConverter.Big.ToUInt32(ReadBodyByteArray(_bodyBuffer, 4), 0);
             else return EndianBitConverter.Little.ToUInt32(ReadBodyByteArray(_bodyBuffer, 4), 0);
         }
+        public static ulong ReadBodyQword(this Stream _bodyBuffer, Endianness Endian = Endianness.BigEndian)
+        {
+            if (Endian == Endianness.BigEndian)
+                return EndianBitConverter.Big.ToUInt64(ReadBodyByteArray(_bodyBuffer, 8), 0);
+            else return EndianBitConverter.Little.ToUInt64(ReadBodyByteArray(_bodyBuffer, 8), 0);
+        }
+        public static long ReadBodyLword(this Stream _bodyBuffer, Endianness Endian = Endianness.BigEndian)
+        {
+            if (Endian == Endianness.BigEndian)
+                return EndianBitConverter.Big.ToInt64(ReadBodyByteArray(_bodyBuffer, 8), 0);
+            else return EndianBitConverter.Little.ToInt64(ReadBodyByteArray(_bodyBuffer, 8), 0);
+        }
         public static string ReadBodyNullTerminatedString(this Stream _bodyBuffer, int MaxSize, char NullTerminatorChar = '\0')
         {
             long BodyLength = _bodyBuffer.Length;
