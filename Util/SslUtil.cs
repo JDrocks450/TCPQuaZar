@@ -44,14 +44,37 @@ namespace QuazarAPI.Util
             return ssl;
         }
         /// <summary>
+        /// Takes the incoming TcpClient connection and attempts to perform an SSL handshake for the client
+        /// </summary>
+        /// <param name="ServerCertificate"></param>
+        /// <param name="newConnection"></param>
+        /// <param name="ID"></param>
+        /// <returns></returns>
+        public static SslStream SslHandshakeClient(X509Certificate ServerCertificate, TcpClient newConnection, X509Chain? ClientCertificates)
+        {
+            QConsole.WriteLine(nameof(SslUtil), $"Client QuazarClient starting SSL Authentication...");
+            // Create a new SslStream for the connection
+            SslStream ssl = new SslStream(newConnection.GetStream(), true);
+
+            // attempt to authenticate the SslStream as a server
+            ssl.AuthenticateAsClient("localhost");//, [ServerCertificate], , ClientCertificates, SslProtocols.Tls, SslStrength.All, true);
+
+            //display information
+            QConsole.WriteLine(nameof(SslUtil), $"Client QuazarClient SSL Authentication Completed.");
+            //QConsole.WriteLine(nameof(SslUtil), $"===SSL INFORMATION===\nSecurity Level:\n{ssl.GetSecurityLevelString()}\nServices:\n{ssl.GetSecurityServicesString()}");
+
+            return ssl;
+        }
+        /// <summary>
         /// Attempts to remove the <see cref="SslStream"/> for a given client ID and disposes of it.
         /// </summary>
         /// <param name="ID"></param>
-        public static void RemoveSslStream(uint ID)
+        public static void RemoveSslStream(uint ID, bool dispose = true)
         {
             if (_streams.TryRemove(ID, out SslStream stream))
             {
-                stream.Dispose();
+                if (dispose)
+                    stream.Dispose();
                 QConsole.WriteLine(nameof(SslUtil), $"Removed SSL stream for client {ID}.");
             }
             else

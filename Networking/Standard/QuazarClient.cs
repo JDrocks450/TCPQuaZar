@@ -1,4 +1,7 @@
-﻿using QuazarAPI.Networking.Data;
+﻿using OpenSSL.SSL;
+using OpenSSL.X509;
+using QuazarAPI.Networking.Data;
+using QuazarAPI.Util;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -47,6 +50,8 @@ namespace QuazarAPI.Networking.Standard
         public bool IsDisposed { get; private set; }
         public bool IsConnected => _client != null && _client.Connected;
         protected TcpClient _client;
+        protected SslStream sslStream;
+        protected bool SSLEnabled => sslStream != null;
         protected Task _recvTask;
         protected Task _packetTask;
         private bool awaiterOverride = false;
@@ -175,9 +180,13 @@ namespace QuazarAPI.Networking.Standard
         public int Port { get; }
         public uint ReceiveAmount => Default_SendRecvAmt;
 
-        public async Task Connect()
+        public async Task Connect(X509Certificate? SecurityCert = default)
         {
             await _client.ConnectAsync(Address, Port);
+            if (SecurityCert != default) // ENABLE SSL
+            {
+                sslStream = SslUtil.SslHandshakeClient(SecurityCert, _client, null);
+            }
             _recvTask = new Task(StartReceiveAsync);
             _recvStop = false;
             _recvTask.Start();
@@ -316,7 +325,15 @@ namespace QuazarAPI.Networking.Standard
         private async Task<byte[]> awaitData()
         {
             ArraySegment<byte> segment = new ArraySegment<byte>(new byte[ReceiveAmount]);
-            int readValue = await _client.Client.ReceiveAsync(segment, SocketFlags.None);
+            int readValue = 0;
+            if (SSLEnabled)
+            {
+                readValue = await sslStream.ReadAsync(segment);
+            }
+            else
+            {
+                readValue = await _client.Client.ReceiveAsync(segment, SocketFlags.None);
+            }         
             byte[] data = segment.Array;
             Array.Resize(ref data, readValue);
             return data;
