@@ -193,11 +193,14 @@ namespace QuazarAPI.Networking.Standard
             
             _packetTask.Start();
         }
-        public Task<int> Send(byte[] Data)
+        public Task Send(byte[] Data)
         {
             try
             {
-                return _client.Client.SendAsync(new ArraySegment<byte>(Data, 0, Data.Length), SocketFlags.None);
+                if (SSLEnabled)
+                    return sslStream.WriteAsync(Data, 0, Data.Length);
+                else
+                    return _client.Client.SendAsync(new ArraySegment<byte>(Data, 0, Data.Length), SocketFlags.None);
             }
             catch(SocketException e)
             {

@@ -195,6 +195,8 @@ namespace QuazarAPI.Networking.Standard
 
         public IPAddress MyIP => Settings.ListenIP;
 
+        public bool UsingSSL => Settings.UseSSL;
+
         //**EVENTS        
         public delegate void QuazarClientInfoHandler(uint ClientID, ClientInfo Info);
         public delegate void QuazarDataHandler(uint ClientID, T Packet);
