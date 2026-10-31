@@ -138,6 +138,13 @@ namespace QuazarAPI.Networking.Standard
             {
                 LingerState = new LingerOption(true, 0),                
             };
+
+            var socket = _client.Client;
+            socket.SendBufferSize = (int)ReceiveAmount;
+            socket.ReceiveBufferSize = (int)ReceiveAmount;
+            socket.NoDelay = true; // disable Nagle's algorithm
+            socket.DontFragment = false;
+
             _packetTask = CreatePacketTask();
         }
         /// <summary>

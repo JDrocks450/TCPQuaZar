@@ -82,12 +82,7 @@ namespace QuazarAPI.Networking.Standard
             {
                 get;
                 set;
-            } = 
-#if DEBUG
-            true;
-#else
-            false;
-#endif
+            } = false;
             /// <summary>
             /// All packets sent through <see cref="Send"/> functions will be ignored except when sent from  
             /// </summary>
@@ -124,10 +119,11 @@ namespace QuazarAPI.Networking.Standard
             /// Allow large Packets (ones with a <see cref="PacketBase.GetBytes"/> Length over the <see cref="SendAmount"/>) to be sent.
             /// <para/>Default: <see langword="false"/>
             /// </summary>
-            public bool AllowClientBufferOverruns { get; set; } = false;
+            public bool AllowClientBufferOverruns { get; set; } = true;
 
             internal TcpListener ServerListener { get; set; } = null;
         }
+
         /// <summary>
         /// The current settings for this <see cref="QuazarServer"/>
         /// </summary>
