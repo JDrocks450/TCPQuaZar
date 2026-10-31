@@ -119,6 +119,13 @@ namespace QuazarAPI.Networking.Standard
             /// Gets whether the server has a <see cref="TcpListener"/> initialized
             /// </summary>
             public bool IsInitialized => ServerListener != null;
+
+            /// <summary>
+            /// Allow large Packets (ones with a <see cref="PacketBase.GetBytes"/> Length over the <see cref="SendAmount"/>) to be sent.
+            /// <para/>Default: <see langword="false"/>
+            /// </summary>
+            public bool AllowClientBufferOverruns { get; set; } = false;
+
             internal TcpListener ServerListener { get; set; } = null;
         }
         /// <summary>
@@ -662,7 +669,15 @@ namespace QuazarAPI.Networking.Standard
             {
                 QConsole.WriteLine(Name, "Couldn't find the client: " + ID);
                 return;
-            }            
+            }
+            if (!Settings.AllowClientBufferOverruns)
+            {
+                if (s_buffer.Length == 0 ||
+                        s_buffer.Length > SendAmount)
+                    throw new ArgumentException($"[QuaZar]: Sending data stream is either 0 or too long for the ClientBuffer: " +
+                        $"Amount: {s_buffer.Length} ClientBufferSize ({nameof(SendAmount)}): {SendAmount}.");
+            }
+
             SendQueue.Enqueue((ID, s_buffer));
             SendThreadInvoke.Set();
         }
@@ -678,12 +693,14 @@ namespace QuazarAPI.Networking.Standard
         {
             void _doSend(T packet)
             {
+                byte[] bytes = packet.GetBytes();                
+
                 packet.Sent = DateTime.Now;
                 InvokeOnOutgoingPacket(ID, packet);
 
                 if (CachePackets)
                     OutgoingTrans.Add(packet);
-                Send(ID, packet.GetBytes(), ManualModeOverride);
+                Send(ID, bytes, ManualModeOverride);
                 if (!CachePackets && DisposePacketOnSent)
                     packet.Dispose();
             }
