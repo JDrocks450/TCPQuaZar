@@ -23,7 +23,7 @@ namespace QuazarAPI.Networking.Data
 
         public void AllocateBody(uint BodySize) => _bodyBuffer.AllocateBody(BodySize);
         public void ReallocateBody(uint NewSize) => _bodyBuffer.ReallocateBody(NewSize);
-        public void SetPosition(int Position) => _bodyBuffer.Position = Position;
+        public void SetPosition(long Position, SeekOrigin Origin = SeekOrigin.Begin) => _bodyBuffer.Seek(Position,Origin);
         public void EmplaceBody(params byte[] Bytes) => _bodyBuffer.EmplaceBody(Bytes);
         public void EmplaceBody(uint DWORD, Endianness Endian = Endianness.BigEndian) => _bodyBuffer.EmplaceBody(DWORD, Endian);
         public void EmplaceBodyAt(int Position, byte[] Buffer) => _bodyBuffer.EmplaceBodyAt(Position, Buffer);
@@ -66,12 +66,11 @@ namespace QuazarAPI.Networking.Data
         /// <exception cref="NotImplementedException"></exception>
         public byte[] ReadToEnd() => ReadBodyByteArray((int)(BodyLength - BodyPosition));
 
-        // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-        // ~TPWPacket()
-        // {
-        //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        //     Dispose(disposing: false);
-        // }
+         ~ExtendedBufferOperations()
+         {
+             // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+             Dispose(disposing: true);
+         }
 
         public void Dispose()
         {
